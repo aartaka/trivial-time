@@ -55,9 +55,16 @@
    ;; The official Guix package should use `sbcl-*' inputs though.
    (native-inputs (list cl-lisp-unit2 sbcl))
    (inputs SPECIFY-INPUTS)
-   (synopsis "ADD A SYNOPSYS.")
+   (synopsis "Common Lisp library to get timing stats for a piece of code.")
    (home-page "https://github.com/aartaka/trivial-time")
-   (description "ADD A DESCRIPTION")
+   (description "trivial-time allows to portably get timing stats for a piece of code.
+In most cases, the stats trivial-time provides are as rich as implementation-specific time stats.
+Provided utilities are:
+@itemize
+@item @code{time} for a better code timing.
+@item @code{benchmark} for quick-and-dirty benchmarking.
+@item @code{with-time} exposing the implementation timing details.
+@end itemize")
    (license license:bsd-3)))
 
 (define-public cl-trivial-time

@@ -2,7 +2,15 @@
 
 *Portably get timing stats for a piece of code (and benchmark it too)*
 
-
+~trivial-time~ allows to /portably/ get timing stats for a piece of code.
+In most cases, the stats ~trivial-time~ provides are as rich as implementation-specific ~time~ stats.
+The main benefits are:
+- The stats are exposed via ~with-time~ macro, so one can easily roll
+  their own ~time~ re-implementation.
+- There's ~benchmark~ macro for quick benchmarking for a piece of
+  code.
+- The format of ~time~ is prettier (at least to me) than most
+  implementation-specific ~time~ listings.
 
 * Getting Started
 Clone the Git repository:
@@ -20,5 +28,39 @@ And then load ~:trivial-time~ in the REPL:
 * Examples
 
 #+begin_src lisp
-  ;; Basic example here, see more in package.lisp.
+  (time (loop for i below 1000
+              collect (make-list i)
+              finally (return 1)))
+  ;; Time spent successfully evaluating:
+  ;; (LOOP FOR I BELOW 1000 ...)
+  ;; Real time:         0.000000 seconds
+  ;; Run time (system): 0.000085 seconds
+  ;; Run time (user):   0.000857 seconds
+  ;; CPU cycles:        2,274,058
+  ;; GC time:           0.000000 seconds
+  ;; Allocated:         8,024,240 bytes
+
+  (trivial-time:with-time (&key aborted gc-count gc allocated)
+      (lists lists-p)
+      (loop for i below 1000
+            collect (make-list i :initial-element :hello)
+              into lists
+            finally (return (values lists t)))
+    (unless aborted
+      (format t "Bytes allocated: ~a, GC ran ~d times for ~a seconds"
+              allocated gc-count gc)))
+  ;; Bytes allocated: 7997952, GC ran NIL times for 0 seconds
+
+  (trivial-time:benchmark (20) ;; Repeat count.
+    (loop for i below 1000 collect (make-list i) finally (return 1)))
+  ;; Benchmark for 20 runs of
+  ;; (LOOP FOR I BELOW 1000
+  ;;       COLLECT (MAKE-LIST I)
+  ;;       FINALLY (RETURN 1))
+  ;; -                   MINIMUM        AVERAGE        MAXIMUM        TOTAL
+  ;; REAL-TIME           0.0            0.00175        0.019          0.035
+  ;; USER-RUN-TIME       0.000668       0.0016634      0.016315       0.033268
+  ;; SYSTEM-RUN-TIME     0.0            0.00021195     0.003794       0.004239
+  ;; GC-RUN-TIME         0.0            0.00085        0.017          0.017
+  ;; BYTES-ALLOCATED     7997952.0      8008154.5      8030464.0      160163090.0
 #+end_src
