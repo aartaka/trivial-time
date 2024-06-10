@@ -3,6 +3,13 @@
 
 (in-package :trivial-time)
 
+#+ecl
+(defun gc-allocated ()
+  (ffi:c-inline
+   () ()
+   :object "ecl_make_unsigned_integer(GC_get_total_bytes())"
+   :one-liner t))
+
 (defmacro with-time ((&rest time-keywords)
                      (&rest multiple-value-args) form
                      &body body)
@@ -161,6 +168,8 @@ always the case that some are missing."
                              (old-bytes-allocated
                                #+(and ecl boehm-gc)
                                (si::gc-stats t)
+                               #+(and ecl (not boehm-gc))
+                               (gc-allocated)
                                #+abcl
                                (- (java:jcall "totalMemory" runtime)
                                   (java:jcall "freeMemory" runtime)))
@@ -188,8 +197,11 @@ always the case that some are missing."
                           (push (cons :gc (/ (- (si::gc-time) old-gc-time)
                                              internal-time-units-per-second))
                                 ,props)
-                          #+(and ecl boehm-gc)
-                          (push (cons :allocated (- (si::gc-stats t) old-bytes-allocated))
+                          #+ecl
+                          (push (cons :allocated
+                                      (- #+boehm-gc (si::gc-stats t)
+                                         #-boehm-gc (gc-allocated)
+                                         old-bytes-allocated))
                                 ,props)
                           #+abcl
                           (push (cons :allocated (max 0 (- (java:jcall "totalMemory" runtime)
@@ -209,14 +221,14 @@ always the case that some are missing."
              ,values
            ,@body)))))
 
-(declaim (ftype (function (function t)) %time))
-(defun %time (thunk form)
-  (let ((decimal-length (ceiling (log internal-time-units-per-second 10))))
-    (with-time (&key aborted real system user cycles gc-count gc allocated faults)
-        (&rest values)
-        (funcall thunk)
-      (format *trace-output*
-              "~&Time spent ~@[un~*~]successfully evaluating:~
+(defgeneric %time (thunk form)
+  (:method ((thunk function) form)
+    (let ((decimal-length (ceiling (log internal-time-units-per-second 10))))
+      (with-time (&key aborted real system user cycles gc-count gc allocated faults)
+          (&rest values)
+          (funcall thunk)
+        (format *trace-output*
+                "~&Time spent ~@[un~*~]successfully evaluating:~
 ~&~s~
 ~:[~2*~;~&Real time:         ~,vf seconds~]~
 ~:[~2*~;~&Run time (system): ~,vf seconds~]~
@@ -226,16 +238,16 @@ always the case that some are missing."
 ~:[~2*~;~&GC time:           ~,vf seconds~]~
 ~@[~&Allocated:         ~:d bytes~]~
 ~@[~&Page faults:       ~:d~]~%"
-              aborted form
-              real decimal-length real
-              system decimal-length system
-              user decimal-length user
-              cycles
-              gc-count
-              gc decimal-length gc
-              allocated
-              faults)
-      (values-list values))))
+                aborted form
+                real decimal-length real
+                system decimal-length system
+                user decimal-length user
+                cycles
+                gc-count
+                gc decimal-length gc
+                allocated
+                faults)
+        (values-list values)))))
 
 (defmacro time (&rest forms)
   "Execute FORMS and print timing information for them.
@@ -250,76 +262,76 @@ Affected by:
                   (cons 'progn forms))))
     `(%time (lambda () ,form) (quote ,form))))
 
-(declaim (ftype (function ((integer 1) function t)) %benchmark))
-(defun %benchmark (repeat thunk form)
-  (let (real-times
-        system-times user-times
-        gc-times allocated-bytes)
-    (flet ((count-push-return ()
-             (with-time (real system user gc allocated)
-                 (&rest values)
-                 (funcall thunk)
-               (declare (ignorable values))
-               (push real real-times)
-               (push system system-times)
-               (push user user-times)
-               (push gc gc-times)
-               (push allocated allocated-bytes)
-               (values-list values)))
-           (avg (nums)
-             (if nums
-                 (/ (reduce #'+ nums)
-                    (length nums))
-                 0))
-           (non-nil (nums)
-             (remove nil nums)))
-      (let* ((values (multiple-value-list
-                      (loop repeat (1- repeat)
-                            do (count-push-return)
-                            finally (return (count-push-return)))))
-             (real-times (non-nil real-times))
-             (system-times (non-nil system-times))
-             (user-times (non-nil user-times))
-             (gc-times (non-nil gc-times))
-             (allocated-bytes (non-nil allocated-bytes))
-             (max-number-length
-               (reduce
-                #'max (append real-times system-times user-times gc-times allocated-bytes)
-                :initial-value 15
-                :key #'(lambda (num) (length (princ-to-string num)))))
-             (unit-length 10))
-        (format *trace-output*
-                "~&Benchmark for ~a runs of~
+(defgeneric %benchmark (repeat thunk form)
+  (:method ((repeat integer) (thunk function) form)
+    (let (real-times
+          system-times user-times
+          gc-times allocated-bytes)
+      (flet ((count-push-return ()
+               (with-time (real system user gc allocated)
+                   (&rest values)
+                   (funcall thunk)
+                 (declare (ignorable values))
+                 (push real real-times)
+                 (push system system-times)
+                 (push user user-times)
+                 (push gc gc-times)
+                 (push allocated allocated-bytes)
+                 (values-list values)))
+             (avg (nums)
+               (if nums
+                   (/ (reduce #'+ nums)
+                      (length nums))
+                   0))
+             (non-nil (nums)
+               (remove nil nums)))
+        (let* ((values (multiple-value-list
+                        (loop repeat (1- repeat)
+                              do (count-push-return)
+                              finally (return (count-push-return)))))
+               (real-times (non-nil real-times))
+               (system-times (non-nil system-times))
+               (user-times (non-nil user-times))
+               (gc-times (non-nil gc-times))
+               (allocated-bytes (non-nil allocated-bytes))
+               (max-number-length
+                 (reduce
+                  #'max (append real-times system-times user-times gc-times allocated-bytes)
+                  :initial-value 15
+                  :key #'(lambda (num) (length (princ-to-string num)))))
+               (unit-length 10))
+          (format *trace-output*
+                  "~&Benchmark for ~a runs of~
 ~&~s" repeat form)
-        (format *trace-output* "~&~a~vt~a~vt~a~vt~a~vt~a~vt~a"
-                '-
-                20 'unit
-                (+ 20 unit-length) 'minimum
-                (+ 20 unit-length max-number-length) 'average
-                (+ 20 unit-length (* 2 max-number-length)) 'maximum
-                (+ 20 unit-length (* 3 max-number-length)) 'total)
-        (loop for (name unit list)
-                in `((real-time "seconds" ,real-times)
-                     (user-run-time "seconds" ,user-times)
-                     (system-run-time "seconds" ,system-times)
-                     (gc-run-time "seconds" ,gc-times)
-                     (allocated "bytes" ,allocated-bytes))
-              when list
-                do (format *trace-output*
-                           "~&~a~vt~a~vt~f~vt~f~vt~f~vt~f~%"
-                           name
-                           20 unit
-                           (+ 20 unit-length)
-                           (cond
-                             ((uiop:emptyp list) 0)
-                             ((= 1 (length list)) (first list))
-                             (t (reduce #'min list :initial-value most-positive-fixnum)))
-                           (+ unit-length 20 max-number-length) (avg list)
-                           (+ 20 unit-length (* 2 max-number-length)) (if list
-                                                                          (reduce #'max list :initial-value 0.0)
-                                                                          0)
-                           (+ 20 unit-length (* 3 max-number-length)) (reduce #'+ list)))
-        (values-list values)))))
+          (format *trace-output* "~&~a~vt~a~vt~a~vt~a~vt~a~vt~a"
+                  '-
+                  20 'unit
+                  (+ 20 unit-length) 'minimum
+                  (+ 20 unit-length max-number-length) 'average
+                  (+ 20 unit-length (* 2 max-number-length)) 'maximum
+                  (+ 20 unit-length (* 3 max-number-length)) 'total)
+          (loop for (name unit list)
+                  in `((real-time "seconds" ,real-times)
+                       (user-run-time "seconds" ,user-times)
+                       (system-run-time "seconds" ,system-times)
+                       (gc-run-time "seconds" ,gc-times)
+                       (allocated "bytes" ,allocated-bytes))
+                when list
+                  do (format *trace-output*
+                             "~&~a~vt~a~vt~f~vt~f~vt~f~vt~f~%"
+                             name
+                             20 unit
+                             (+ 20 unit-length)
+                             (cond
+                               ((uiop:emptyp list) 0)
+                               ((= 1 (length list)) (first list))
+                               (t (reduce #'min list :initial-value most-positive-fixnum)))
+                             (+ unit-length 20 max-number-length) (avg list)
+                             (+ 20 unit-length (* 2 max-number-length)) (if list
+                                                                            (reduce #'max list :initial-value 0.0)
+                                                                            0)
+                             (+ 20 unit-length (* 3 max-number-length)) (reduce #'+ list)))
+          (values-list values))))))
 
 (defmacro benchmark ((&optional (repeat 1000)) &body forms)
   "Run FORMS REPEAT times, recording `time'-ing data per every run.
