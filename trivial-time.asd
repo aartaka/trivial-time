@@ -1,7 +1,7 @@
 ;;;; SPDX-FileCopyrightText: Artyom Bologov
 ;;;; SPDX-License-Identifier: BSD-2 Clause
 
-(defsystem "trivial-time"
+(asdf:defsystem "trivial-time"
   :description "trivial-time allows timing a benchmarking a piece of code portably"
   :author "Artyom Bologov"
   :homepage "https://github.com/aartaka/trivial-time"
